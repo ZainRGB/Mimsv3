@@ -114,7 +114,7 @@ namespace Mimsv2.Controllers
         [HttpGet]
         public async Task<IActionResult> GetMonthlyData(string? hospitalid)
         {
-            Console.WriteLine(">>> Incoming hospitalid: " + hospitalid);
+           
 
             var data = new List<MonthlyIncidentData>();
 
@@ -236,6 +236,87 @@ namespace Mimsv2.Controllers
         }
 
         //COUNT incidenttype end
+
+        //COUNT Affectedward
+        [HttpGet]
+        public async Task<IActionResult> GetTopAffectedWards(string? hospitalid)
+        {
+            var results = new List<object>();
+
+            using var conn = new NpgsqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            await conn.OpenAsync();
+
+            string sql = @"
+        SELECT affectedward, COUNT(*) AS totalincidents 
+        FROM tblincident 
+        WHERE active = 'Y'
+          AND datecaptured >= (CURRENT_DATE - INTERVAL '6 months')
+          " + (string.IsNullOrEmpty(hospitalid) ? "" : " AND hospitalid = @hospitalid") + @"
+        GROUP BY affectedward
+        ORDER BY totalincidents DESC 
+        LIMIT 10;
+    ";
+
+            using var cmd = new NpgsqlCommand(sql, conn);
+            if (!string.IsNullOrEmpty(hospitalid))
+                cmd.Parameters.AddWithValue("@hospitalid", hospitalid);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                results.Add(new
+                {
+                    ward = reader["affectedward"]?.ToString() ?? "Unknown",
+                    count = Convert.ToInt32(reader["totalincidents"])
+                });
+            }
+
+            return Json(results);
+        }
+
+
+
+        //COUNT Affectedward end
+
+        //COUNT YTD All hospitals
+        [HttpGet]
+        public async Task<IActionResult> GetIncidentCountsPerHospital(DateTime? startDate, DateTime? endDate)
+        {
+            var results = new List<object>();
+            var start = startDate ?? new DateTime(DateTime.Today.Year, 1, 1);
+            var end = endDate ?? DateTime.Today;
+
+            using var conn = new NpgsqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            await conn.OpenAsync();
+
+            string sql = @"
+        SELECT h.hospital, COUNT(i.*) AS totalincidents
+        FROM tblincident i
+        JOIN tblhospitals h ON i.hospitalid = h.hospitalid
+        WHERE i.active = 'Y'
+          AND i.datecaptured BETWEEN @startDate AND @endDate
+        GROUP BY h.hospital
+        ORDER BY h.hospital DESC;
+    ";
+
+            using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@startDate", start);
+            cmd.Parameters.AddWithValue("@endDate", end);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                results.Add(new
+                {
+                    hospital = reader["hospital"].ToString(),
+                    count = Convert.ToInt32(reader["totalincidents"])
+                });
+            }
+
+            return Json(results);
+        }
+
+        //COUNT YTD all hospitals end
 
 
 
